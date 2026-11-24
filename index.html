@@ -474,7 +474,7 @@ footer{
 
   <div class="alerts-row">
     <div class="panel">
-      <h2>Vencidas sin cerrar <span class="n" id="overdueN"></span></h2>
+      <h2>Reprogramadas <span class="n" id="overdueN"></span></h2>
       <div id="overdueList"><div class="alert-empty">Conectá el dashboard para ver alertas.</div></div>
     </div>
     <div class="panel">
@@ -800,7 +800,7 @@ footer{
 
     $('overdueList').innerHTML = overdue.length ? overdue.slice(0,30).map(r=>
       '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill red">'+esc(r._grupo)+'</span></span><span class="a-meta">'+fmtDate(r._fechaFin)+'</span></div>'
-    ).join('') : '<div class="alert-empty">Sin actividades vencidas.</div>';
+    ).join('') : '<div class="alert-empty">Sin actividades reprogramadas.</div>';
 
     $('nocommentList').innerHTML = noComment.length ? noComment.slice(0,30).map(r=>
       '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill amber">'+esc(r['N° OM'])+'</span></span><span class="a-meta">'+esc(r._grupo)+'</span></div>'
