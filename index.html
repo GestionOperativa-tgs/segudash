@@ -580,7 +580,15 @@ footer{
     'IDM':'Ing. de Mtto',
     'TTM':'Taller de Turbinas'
   };
-  function grupoNombre(v){
+  // La Ubicación Técnica manda sobre el grupo: OCTY = Planta Tratayén; CCSA = Planta Salliqueló
+  // (hay órdenes cargadas en el grupo GPM que pertenecen a las plantas)
+  const UT_PLANTAS = [
+    { re:/(^|[^A-Z0-9])OCTY/, nombre:'Planta Tratayén' },
+    { re:/(^|[^A-Z0-9])CCSA/, nombre:'Planta Salliqueló' }
+  ];
+  function grupoNombre(v, ut){
+    const u = (ut||'').toString().trim().toUpperCase();
+    for(const p of UT_PLANTAS){ if(p.re.test(u)) return p.nombre; }
     const g = (v||'').toString().trim();
     return GRUPO_NOMBRES[g.toUpperCase()] || g;
   }
@@ -647,7 +655,7 @@ footer{
           _catColor: cat.color,
           _estadoSap: (row['Estado']||'').toString().trim().toUpperCase(),
           _estado: normEstado(row['Estado']),
-          _grupo: grupoNombre(row['Grupo'])
+          _grupo: grupoNombre(row['Grupo'], row['Ubicación Técnica'])
         });
       });
       populateFilters();
