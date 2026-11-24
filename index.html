@@ -383,6 +383,7 @@ td.coment{white-space:normal; min-width:180px; color:var(--ink-soft);}
 .badge.cerrada{color:var(--green); background:var(--green-soft);}
 .badge.liberada{color:var(--blue); background:var(--blue-soft);}
 .badge.reprog{color:var(--amber); background:var(--amber-soft);}
+.badge.pendiente{color:var(--amber); background:var(--amber-soft);}
 .badge.otro{color:var(--slate); background:var(--slate-soft);}
 .cat-chip{
   display:inline-block;
@@ -449,12 +450,12 @@ footer{
       <div class="sub" id="kpiCerradasSub">&nbsp;</div>
     </div>
     <div class="kpi k-mes">
-      <div class="label">Programadas este mes</div>
+      <div class="label">Programadas</div>
       <div class="value" id="kpiMes">—</div>
       <div class="sub" id="kpiMesSub">&nbsp;</div>
     </div>
     <div class="kpi k-venc">
-      <div class="label">Vencidas sin cerrar</div>
+      <div class="label">Reprogramadas</div>
       <div class="value" id="kpiVencidas">—</div>
       <div class="sub" id="kpiVencidasSub">&nbsp;</div>
     </div>
@@ -561,6 +562,29 @@ footer{
     return CATEGORY_RULES[CATEGORY_RULES.length-1];
   }
 
+  // Estado SAP → estado de tablero: CERR / CTEC = Cerrada; ABIE / LIB = Pendiente
+  function normEstado(v){
+    const e = (v||'').toString().trim().toUpperCase();
+    if(!e) return '';
+    if(/^(CERR|CTEC)/.test(e)) return 'CERRADA';
+    if(/^(ABIE|LIB)/.test(e)) return 'PENDIENTE';
+    return e;
+  }
+
+  // Códigos de grupo de planificación → nombre para mostrar
+  const GRUPO_NOMBRES = {
+    'CSA':'Planta Salliqueló',
+    'CTY':'Planta Tratayén',
+    'GPM':'Gasoducto PM',
+    'SIO':'GSAC',
+    'IDM':'Ing. de Mtto',
+    'TTM':'Taller de Turbinas'
+  };
+  function grupoNombre(v){
+    const g = (v||'').toString().trim();
+    return GRUPO_NOMBRES[g.toUpperCase()] || g;
+  }
+
   function parseDate(v){
     if(!v) return null;
     if(v instanceof Date) return v;
@@ -621,7 +645,9 @@ footer{
           _fechaFin: parseDate(row['Fecha Fin']),
           _categoria: cat.name,
           _catColor: cat.color,
-          _estado: (row['Estado']||'').toString().trim().toUpperCase()
+          _estadoSap: (row['Estado']||'').toString().trim().toUpperCase(),
+          _estado: normEstado(row['Estado']),
+          _grupo: grupoNombre(row['Grupo'])
         });
       });
       populateFilters();
@@ -636,7 +662,7 @@ footer{
   }
 
   function populateFilters(){
-    const groups = [...new Set(rawData.map(r=>r['Grupo']).filter(Boolean))].sort();
+    const groups = [...new Set(rawData.map(r=>r._grupo).filter(Boolean))].sort();
     const cats = [...new Set(rawData.map(r=>r._categoria))].sort();
     const statuses = [...new Set(rawData.map(r=>r._estado).filter(Boolean))].sort();
 
@@ -660,11 +686,11 @@ footer{
     const s = $('filterStatus').value;
 
     filtered = rawData.filter(r=>{
-      if(g && r['Grupo'] !== g) return false;
+      if(g && r._grupo !== g) return false;
       if(c && r._categoria !== c) return false;
       if(s && r._estado !== s) return false;
       if(q){
-        const hay = [r['Descripción'], r['N° OM'], r['Resp.'], r['Ubicación Técnica'], r['Comentario']]
+        const hay = [r['Descripción'], r['N° OM'], r._grupo, r._estadoSap, r['Resp.'], r['Ubicación Técnica'], r['Comentario']]
           .map(x=>(x||'').toString().toLowerCase()).join(' ');
         if(!hay.includes(q)) return false;
       }
@@ -681,17 +707,18 @@ footer{
     const total = filtered.length;
     const cerradas = filtered.filter(r=>r._estado==='CERRADA').length;
     const now = new Date();
-    const thisMonth = filtered.filter(r=>{
-      const f = r._fechaFin || r._fechaIni;
-      return f && f.getFullYear()===now.getFullYear() && f.getMonth()===now.getMonth();
-    }).length;
-    const overdue = filtered.filter(r=> r._fechaFin && r._fechaFin < now && r._estado!=='CERRADA').length;
+    // Reprogramadas: sin cerrar y con Fecha Fin vencida. Programadas: sin cerrar y en plazo.
+    const overdue = filtered.filter(r=> r._estado!=='CERRADA' && r._fechaFin && r._fechaFin < now).length;
+    const programadas = filtered.filter(r=> r._estado!=='CERRADA').length - overdue;
+    const pct = n => total ? Math.round(n/total*100)+'% del total' : '\u00A0';
 
     $('kpiTotal').textContent = total;
     $('kpiCerradas').textContent = cerradas;
-    $('kpiCerradasSub').textContent = total ? Math.round(cerradas/total*100)+'% del total' : '\u00A0';
-    $('kpiMes').textContent = thisMonth;
+    $('kpiCerradasSub').textContent = pct(cerradas);
+    $('kpiMes').textContent = programadas;
+    $('kpiMesSub').textContent = pct(programadas);
     $('kpiVencidas').textContent = overdue;
+    $('kpiVencidasSub').textContent = pct(overdue);
   }
 
   function renderCharts(){
@@ -734,7 +761,7 @@ footer{
     // ---- grupo (bar) ----
     const groupMap = {};
     filtered.forEach(r=>{
-      const g = r['Grupo'] || 'Sin grupo';
+      const g = r._grupo || 'Sin grupo';
       groupMap[g] = (groupMap[g]||0)+1;
     });
     const groupLabels = Object.keys(groupMap).sort();
@@ -772,11 +799,11 @@ footer{
     $('nocommentN').textContent = noComment.length ? '('+noComment.length+')' : '';
 
     $('overdueList').innerHTML = overdue.length ? overdue.slice(0,30).map(r=>
-      '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill red">'+esc(r['Grupo'])+'</span></span><span class="a-meta">'+fmtDate(r._fechaFin)+'</span></div>'
+      '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill red">'+esc(r._grupo)+'</span></span><span class="a-meta">'+fmtDate(r._fechaFin)+'</span></div>'
     ).join('') : '<div class="alert-empty">Sin actividades vencidas.</div>';
 
     $('nocommentList').innerHTML = noComment.length ? noComment.slice(0,30).map(r=>
-      '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill amber">'+esc(r['N° OM'])+'</span></span><span class="a-meta">'+esc(r['Grupo'])+'</span></div>'
+      '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill amber">'+esc(r['N° OM'])+'</span></span><span class="a-meta">'+esc(r._grupo)+'</span></div>'
     ).join('') : '<div class="alert-empty">Todas las cerradas tienen comentario.</div>';
   }
 
@@ -786,6 +813,7 @@ footer{
 
   function badgeClass(estado){
     if(estado==='CERRADA') return 'cerrada';
+    if(estado==='PENDIENTE') return 'pendiente';
     if(estado==='LIBERADA') return 'liberada';
     if(estado && estado.indexOf('REPROG')>=0) return 'reprog';
     return 'otro';
@@ -795,8 +823,9 @@ footer{
     let rows = filtered.slice();
     if(sortKey){
       rows.sort((a,b)=>{
-        let va = sortKey==='_categoria' ? a._categoria : a[sortKey];
-        let vb = sortKey==='_categoria' ? b._categoria : b[sortKey];
+        const k = sortKey==='Grupo' ? '_grupo' : sortKey==='Estado' ? '_estado' : sortKey;
+        let va = a[k];
+        let vb = b[k];
         if(sortKey==='Fecha Ini' || sortKey==='Fecha Fin'){
           va = sortKey==='Fecha Ini' ? a._fechaIni : a._fechaFin;
           vb = sortKey==='Fecha Ini' ? b._fechaIni : b._fechaFin;
@@ -821,7 +850,7 @@ footer{
 
     $('tableBody').innerHTML = rows.map(r=>
       '<tr>'+
-      '<td>'+esc(r['Grupo'])+'</td>'+
+      '<td>'+esc(r._grupo)+'</td>'+
       '<td class="mono">'+esc(r['N° OM'])+'</td>'+
       '<td>'+esc(r['Ubicación Técnica'])+'</td>'+
       '<td class="mono">'+fmtDate(r._fechaIni)+'</td>'+
@@ -829,7 +858,7 @@ footer{
       '<td class="desc">'+esc(r['Descripción'])+'</td>'+
       '<td><span class="cat-chip" style="color:'+r._catColor+'; background:'+r._catColor+'1a;">'+esc(r._categoria)+'</span></td>'+
       '<td>'+esc(r['Resp.'])+'</td>'+
-      '<td><span class="badge '+badgeClass(r._estado)+'">'+esc(r._estado||'—')+'</span></td>'+
+      '<td><span class="badge '+badgeClass(r._estado)+'" title="Estado SAP: '+esc(r._estadoSap)+'">'+esc(r._estado||'—')+'</span></td>'+
       '<td class="mono">'+esc(r['N° Plan'])+'</td>'+
       '<td class="coment">'+esc(r['Comentario'])+'</td>'+
       '</tr>'
