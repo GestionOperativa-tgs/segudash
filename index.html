@@ -308,6 +308,17 @@ header{
 .pill.amber{color:var(--amber); background:var(--amber-soft);}
 
 /* ---------- Table ---------- */
+.reprog-panel{margin-bottom:14px;}
+.panel-title{font-size:13.5px; font-weight:700; margin:0 0 12px; display:flex; justify-content:space-between;}
+.panel-title .n{font-family:'IBM Plex Mono', monospace; font-weight:500; color:var(--ink-soft); font-size:11.5px;}
+.rp-scroll{max-height:420px; overflow-y:auto;}
+.rp-scroll thead th{position:sticky; top:0; z-index:1;}
+.rp-date{font-size:12px; color:var(--ink-soft); display:flex; align-items:center; gap:5px;}
+.rp-date input{padding:6px 7px; border:1px solid var(--line); border-radius:5px; font-size:12.5px; font-family:inherit;}
+.rp-clear{padding:7px 10px; border:1px solid var(--line); border-radius:5px; font-size:12px; background:#fff; cursor:pointer;}
+.rp-clear:hover{background:#FAFBFC;}
+td.rp-empty{text-align:center; color:var(--ink-soft); padding:20px;}
+td.atraso{color:var(--red); font-weight:600;}
 .table-panel{
   background:var(--card);
   border:1px solid var(--line);
@@ -472,14 +483,34 @@ footer{
     </div>
   </div>
 
-  <div class="alerts-row">
-    <div class="panel">
-      <h2>Reprogramadas <span class="n" id="overdueN"></span></h2>
-      <div id="overdueList"><div class="alert-empty">Conectá el dashboard para ver alertas.</div></div>
+  <div class="table-panel reprog-panel">
+    <h2 class="panel-title">Reprogramadas <span class="n" id="overdueN"></span></h2>
+    <div class="table-controls">
+      <input type="text" id="rpSearch" placeholder="Buscar descripción, N° OM, ubicación...">
+      <select id="rpGroup"><option value="">Todos los sectores</option></select>
+      <label class="rp-date">Fecha fin desde <input type="date" id="rpDesde"></label>
+      <label class="rp-date">hasta <input type="date" id="rpHasta"></label>
+      <button type="button" class="rp-clear" id="rpClear">Limpiar</button>
+      <span class="count" id="rpCount"></span>
     </div>
-    <div class="panel">
-      <h2>Sin comentario de cierre <span class="n" id="nocommentN"></span></h2>
-      <div id="nocommentList"><div class="alert-empty">Conectá el dashboard para ver alertas.</div></div>
+    <div class="table-scroll rp-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Sector</th>
+            <th>N° OM</th>
+            <th>Ubic. Técnica</th>
+            <th>Fecha Fin</th>
+            <th>Días de atraso</th>
+            <th class="desc-h">Descripción</th>
+            <th>Resp.</th>
+            <th>N° Plan</th>
+          </tr>
+        </thead>
+        <tbody id="overdueList">
+          <tr><td colspan="8" class="rp-empty">Conectá el dashboard para ver las reprogramadas.</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -675,6 +706,7 @@ footer{
     const statuses = [...new Set(rawData.map(r=>r._estado).filter(Boolean))].sort();
 
     fillSelect('filterGroup', groups, 'Todos los grupos');
+    fillSelect('rpGroup', groups, 'Todos los sectores');
     fillSelect('filterCat', cats, 'Todas las categorías');
     fillSelect('filterStatus', statuses, 'Todos los estados');
   }
@@ -798,21 +830,40 @@ footer{
   function renderAlerts(){
     const now = new Date();
     const overdue = filtered
-      .filter(r=> r._fechaFin && r._fechaFin < now && r._estado!=='CERRADA')
+      .filter(r=> r._estado!=='CERRADA' && r._fechaFin && r._fechaFin < now)
       .sort((a,b)=> a._fechaFin - b._fechaFin);
-    const noComment = filtered
-      .filter(r=> r._estado==='CERRADA' && !(r['Comentario']||'').toString().trim());
-
     $('overdueN').textContent = overdue.length ? '('+overdue.length+')' : '';
-    $('nocommentN').textContent = noComment.length ? '('+noComment.length+')' : '';
 
-    $('overdueList').innerHTML = overdue.length ? overdue.slice(0,30).map(r=>
-      '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill red">'+esc(r._grupo)+'</span></span><span class="a-meta">'+fmtDate(r._fechaFin)+'</span></div>'
-    ).join('') : '<div class="alert-empty">Sin actividades reprogramadas.</div>';
+    const q = $('rpSearch').value.trim().toLowerCase();
+    const g = $('rpGroup').value;
+    const dIni = $('rpDesde').value ? parseDate($('rpDesde').value) : null;
+    const dFin = $('rpHasta').value ? parseDate($('rpHasta').value) : null;
+    const rows = overdue.filter(r=>{
+      if(g && r._grupo !== g) return false;
+      if(dIni && r._fechaFin < dIni) return false;
+      if(dFin && r._fechaFin > dFin) return false;
+      if(q){
+        const hay = [r['Descripción'], r['N° OM'], r['Ubicación Técnica'], r['Resp.'], r['N° Plan'], r._grupo]
+          .map(x=>(x||'').toString().toLowerCase()).join(' ');
+        if(!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    $('rpCount').textContent = rows.length + ' de ' + overdue.length + ' reprogramadas';
 
-    $('nocommentList').innerHTML = noComment.length ? noComment.slice(0,30).map(r=>
-      '<div class="alert-item"><span class="a-desc">'+esc(r['Descripción'])+' <span class="pill amber">'+esc(r['N° OM'])+'</span></span><span class="a-meta">'+esc(r._grupo)+'</span></div>'
-    ).join('') : '<div class="alert-empty">Todas las cerradas tienen comentario.</div>';
+    $('overdueList').innerHTML = rows.length ? rows.map(r=>{
+      const dias = Math.floor((now - r._fechaFin)/86400000);
+      return '<tr>'+
+        '<td>'+esc(r._grupo)+'</td>'+
+        '<td class="mono">'+esc(r['N° OM'])+'</td>'+
+        '<td>'+esc(r['Ubicación Técnica'])+'</td>'+
+        '<td class="mono">'+fmtDate(r._fechaFin)+'</td>'+
+        '<td class="mono atraso">'+dias+'</td>'+
+        '<td class="desc">'+esc(r['Descripción'])+'</td>'+
+        '<td>'+esc(r['Resp.'])+'</td>'+
+        '<td class="mono">'+esc(r['N° Plan'])+'</td>'+
+        '</tr>';
+    }).join('') : '<tr><td colspan="8" class="rp-empty">'+(overdue.length ? 'Sin reprogramadas para los filtros aplicados.' : 'Sin actividades reprogramadas.')+'</td></tr>';
   }
 
   function esc(s){
@@ -897,6 +948,12 @@ footer{
   $('filterGroup').addEventListener('change', applyFilters);
   $('filterCat').addEventListener('change', applyFilters);
   $('filterStatus').addEventListener('change', applyFilters);
+  ['rpSearch'].forEach(id=>$(id).addEventListener('input', renderAlerts));
+  ['rpGroup','rpDesde','rpHasta'].forEach(id=>$(id).addEventListener('change', renderAlerts));
+  $('rpClear').addEventListener('click', ()=>{
+    $('rpSearch').value=''; $('rpGroup').value=''; $('rpDesde').value=''; $('rpHasta').value='';
+    renderAlerts();
+  });
 
   setupSort();
   if(DEFAULT_URL){ $('scriptUrl').value = DEFAULT_URL; }
